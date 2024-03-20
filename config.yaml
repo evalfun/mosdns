@@ -1,0 +1,75 @@
+log:
+  level: info
+
+plugins:
+  - tag: "exec_cdns"
+    type: "custom_dns"
+    args:
+      # database_type: sqlite
+      # database_address: database.db
+      database_type: mysql
+      database_address: mosdns_user:mosdns_pw_20240310@tcp(10.0.182.190:3306)/mosdns?charset=utf8mb4&parseTime=True&loc=Local
+
+  - tag: "exec_cache"
+    type: "cache"
+    args:
+      size: 2048 
+      lazy_cache_ttl: 0 
+      #dump_file: ./cache.dump
+      dump_interval: 600
+
+  - tag: "query_cdns"
+    type: "sequence"
+    args:
+      - exec: query_summary query_cdns
+      - exec: accept
+
+  - tag: "query_cached"
+    type: "sequence"
+    args:
+      - exec: query_summary query_cached
+      - exec: accept
+
+  - tag: "query_local"
+    type: "sequence"
+    args:
+      - exec: query_summary query_local
+      - exec: forward https://1.12.12.12/dns-query
+      - exec: accept
+
+  - tag: "query_remote"
+    type: "sequence"
+    args:
+      - exec: query_summary query_remote
+      - exec: forward https://94.140.14.140/dns-query https://1.0.0.1/dns-query
+      - exec: accept
+
+
+  - tag: main
+    type: sequence
+    args:
+      - exec: query_summary query_start
+      - exec: $exec_cdns
+      - matches:    
+          - has_resp
+        exec: goto query_cdns
+      - exec: $exec_cache
+      - matches:        
+          - has_resp
+        exec: goto query_cached
+      - matches: 
+          - qname &./china-list.txt
+        exec: goto query_local
+      - exec: goto query_remote
+
+
+  - type: udp_server
+    args:
+      entry: main 
+      listen: 0.0.0.0:53
+  - type: tcp_server
+    args:
+      entry: main
+      listen: 0.0.0.0:53
+api:
+  http: 0.0.0.0:8231
